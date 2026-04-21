@@ -15,13 +15,16 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    console.log('Attempting sign in with:', email)
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    console.log('Sign in result - data:', data)
+    console.log('Sign in result - error:', error)
 
     if (error) {
       setError(error.message)
       setLoading(false)
     } else {
-      // Let middleware redirect to /dashboard
+      console.log('Success! Redirecting to /dashboard...')
       window.location.href = '/dashboard'
     }
   }
@@ -32,7 +35,6 @@ export default function LoginPage() {
       style={{ background: 'linear-gradient(135deg, #cce8e5 0%, #a8d8d4 50%, #7ec8c3 100%)' }}
     >
       <div className="w-full max-w-sm">
-        {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div
             className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-extrabold text-2xl mb-3 shadow-lg"
@@ -44,15 +46,12 @@ export default function LoginPage() {
           <p className="text-[#4a8a85] text-sm mt-1">Client Management</p>
         </div>
 
-        {/* Card */}
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <h2 className="text-lg font-bold text-gray-900 mb-6">Sign in to your account</h2>
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                Email address
-              </label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Email address</label>
               <input
                 type="email"
                 value={email}
@@ -64,9 +63,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                Password
-              </label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Password</label>
               <input
                 type="password"
                 value={password}
