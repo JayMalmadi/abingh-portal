@@ -4,7 +4,7 @@ import React, { Suspense, useEffect, useState, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import AppLayout from '@/components/AppLayout'
 import { createClient } from '@/lib/supabase'
-import { Task, TaskStatus, TASK_TYPE_LABELS } from '@/lib/types'
+import { Task, TaskStatus, TASK_TYPE_LABELS, TEAM_MEMBERS } from '@/lib/types'
 
 interface TaskWithClient extends Task {
   clients: { company_name: string; email: string; contact_first: string; assigned_to?: string }
@@ -65,6 +65,8 @@ function TasksContent() {
   const [loading, setLoading]     = useState(true)
   const [filter, setFilter]       = useState('all')
   const [quarterFilter, setQuarterFilter] = useState<string | null>(null)
+  const [search, setSearch]               = useState('')
+  const [assignedFilter, setAssignedFilter] = useState('all')
   const [expandedId, setExpandedId]       = useState<string | null>(null)
   const [commentsMap, setCommentsMap]     = useState<Record<string, TaskComment[]>>({})
   const [commentInput, setCommentInput]   = useState<Record<string, string>>({})
@@ -176,13 +178,23 @@ function TasksContent() {
   const weekEnd   = new Date(today); weekEnd.setDate(today.getDate() + 7)
   const monthEnd  = new Date(today.getFullYear(), today.getMonth() + 1, 0)
 
-  // Apply quarter filter first, then date/status filter
+  // Apply all filters
+  const searchFiltered = tasks.filter(t => {
+    if (!search) return true
+    return t.clients?.company_name?.toLowerCase().includes(search.toLowerCase())
+  })
+
+  const assignedFiltered = searchFiltered.filter(t => {
+    if (assignedFilter === 'all') return true
+    return t.clients?.assigned_to === assignedFilter
+  })
+
   const quarterFiltered = quarterFilter
-    ? tasks.filter(t => {
+    ? assignedFiltered.filter(t => {
         const qf = QUARTER_FILTERS.find(q => q.id === quarterFilter)
         return qf?.match.some(m => t.period_label.includes(m)) ?? false
       })
-    : tasks
+    : assignedFiltered
 
   const filtered = quarterFiltered.filter(t => {
     const d = new Date(t.deadline)
@@ -228,6 +240,25 @@ function TasksContent() {
 
   return (
     <>
+      {/* Search + assigned filter */}
+      <div className="flex gap-2 mb-4 flex-wrap">
+        <input
+          type="search"
+          placeholder="Search client…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 w-48"
+        />
+        <select
+          value={assignedFilter}
+          onChange={e => setAssignedFilter(e.target.value)}
+          className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-400 cursor-pointer"
+        >
+          <option value="all">All team members</option>
+          {TEAM_MEMBERS.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </div>
+
       {/* Quarter selector */}
       <div className="mb-3">
         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">Period</p>
