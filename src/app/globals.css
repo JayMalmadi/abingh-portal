@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+}
+
+@layer components {
+  /* Sidebar gradient */
+  .sidebar-gradient {
+    background: linear-gradient(170deg, #cce8e5 0%, #a8d8d4 55%, #90ceca 100%);
+  }
+
+  /* Coral button */
+  .btn-coral {
+    @apply bg-[#e8622a] hover:bg-[#cf4f1e] text-white font-semibold px-4 py-2 rounded-lg transition-all shadow-sm hover:shadow-md hover:-translate-y-px;
+  }
+
+  /* Outline button */
+  .btn-outline {
+    @apply bg-white border border-gray-200 text-gray-600 font-semibold px-4 py-2 rounded-lg transition-all shadow-sm hover:bg-gray-50 hover:shadow-md hover:-translate-y-px;
+  }
+
+  /* Card */
+  .card {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm;
+  }
+
+  /* Badge */
+  .badge-red    { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-50 text-red-700; }
+  .badge-amber  { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700; }
+  .badge-teal   { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-50 text-teal-700; }
+  .badge-green  { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-50 text-green-700; }
+  .badge-gray   { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-600 border border-gray-200; }
+  .badge-purple { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-50 text-purple-700; }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+
+/* Select styling */
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2394a3b8'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px !important;
+  -webkit-appearance: none;
+  appearance: none;
+}
