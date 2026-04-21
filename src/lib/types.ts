@@ -5,6 +5,22 @@ export type ClientStatus = 'active' | 'inactive' | 'liquidated' | 'on_hold'
 export type TaskType = 'bookkeeping' | 'esl' | 'vat' | 'cit' | 'annual_accounts'
 export type TaskStatus = 'pending' | 'info_requested' | 'in_progress' | 'done'
 
+export const TEAM_MEMBERS = ['Jay', 'Amrit', 'Robert', 'Kartavya', 'Garima'] as const
+export type TeamMember = typeof TEAM_MEMBERS[number]
+
+export interface ClientAuditLog {
+  id: string
+  client_id: string
+  user_id: string
+  batch_id: string
+  action: 'created' | 'updated' | 'deleted'
+  field_name: string | null
+  old_value: string | null
+  new_value: string | null
+  changed_by: string
+  changed_at: string
+}
+
 export interface Client {
   id: string
   user_id: string
@@ -22,6 +38,7 @@ export interface Client {
   status: ClientStatus
   email_to: string       // override TO address; empty = use contact email
   email_cc: string       // comma-separated CC addresses
+  assigned_to: string
   notes: string
   created_at: string
   updated_at: string

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import AppLayout from '@/components/AppLayout'
 import { createClient } from '@/lib/supabase'
-import { Client, ClientStatus, EmailCadence } from '@/lib/types'
+import { Client, ClientStatus, EmailCadence, TEAM_MEMBERS } from '@/lib/types'
 
 const AVATAR_COLORS = [
   '#f97316','#6366f1','#0ea5e9','#10b981',
@@ -28,17 +28,23 @@ function initials(name: string) {
   return name.split(' ').filter(w => /^[A-Z]/i.test(w)).slice(0, 2).map(w => w[0].toUpperCase()).join('')
 }
 
-const statusCls = (s: ClientStatus) => CLIENT_STATUS_OPTIONS.find(o => o.value === s)?.cls ?? ''
-const cadenceCls = (c: EmailCadence) => CADENCE_OPTIONS.find(o => o.value === c)?.cls ?? ''
+const statusCls  = (s: ClientStatus)  => CLIENT_STATUS_OPTIONS.find(o => o.value === s)?.cls ?? ''
+const cadenceCls = (c: EmailCadence)  => CADENCE_OPTIONS.find(o => o.value === c)?.cls ?? ''
+
+function nameFromEmail(email: string) {
+  const map: Record<string, string> = { 'jay@abingh.com': 'Jay' }
+  return map[email] ?? email.split('@')[0]
+}
 
 export default function ClientsPage() {
-  const [clients, setClients]   = useState<Client[]>([])
-  const [filtered, setFiltered] = useState<Client[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [filter, setFilter]     = useState('all')
-  const [search, setSearch]     = useState('')
+  const [clients, setClients]       = useState<Client[]>([])
+  const [filtered, setFiltered]     = useState<Client[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [filter, setFilter]         = useState('all')
+  const [search, setSearch]         = useState('')
   const [overdueMap, setOverdueMap] = useState<Record<string, number>>({})
-  const router = useRouter()
+  const [currentUser, setCurrentUser] = useState<{ id: string; name: string }>({ id: '', name: 'Jay' })
+  const router   = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
@@ -46,21 +52,17 @@ export default function ClientsPage() {
       const { data: { session } } = await supabase.auth.getSession()
       const user = session?.user
       if (!user) { router.push('/login'); return }
+      setCurrentUser({ id: user.id, name: nameFromEmail(user.email ?? '') })
 
       const { data: clientsData } = await supabase
-        .from('clients')
-        .select('*')
-        .order('company_name', { ascending: true })
+        .from('clients').select('*').order('company_name', { ascending: true })
       const list = (clientsData as Client[]) ?? []
       setClients(list)
       setFiltered(list)
 
       const today = new Date().toISOString().split('T')[0]
       const { data: overdueTasks } = await supabase
-        .from('tasks')
-        .select('client_id')
-        .lt('deadline', today)
-        .neq('status', 'done')
+        .from('tasks').select('client_id').lt('deadline', today).neq('status', 'done')
       const map: Record<string, number> = {}
       ;(overdueTasks ?? []).forEach((t: { client_id: string }) => {
         map[t.client_id] = (map[t.client_id] ?? 0) + 1
@@ -86,14 +88,35 @@ export default function ClientsPage() {
     setFiltered(list)
   }, [filter, search, clients, overdueMap])
 
-  const updateStatus = async (clientId: string, status: ClientStatus) => {
-    await supabase.from('clients').update({ status }).eq('id', clientId)
-    setClients(prev => prev.map(c => c.id === clientId ? { ...c, status } : c))
+  const logInlineChange = async (clientId: string, field: string, oldVal: string, newVal: string) => {
+    await supabase.from('client_audit_log').insert({
+      client_id:  clientId,
+      user_id:    currentUser.id,
+      batch_id:   crypto.randomUUID(),
+      action:     'updated',
+      field_name: field,
+      old_value:  oldVal,
+      new_value:  newVal,
+      changed_by: currentUser.name,
+    })
   }
 
-  const updateCadence = async (clientId: string, email_cadence: EmailCadence) => {
-    await supabase.from('clients').update({ email_cadence }).eq('id', clientId)
-    setClients(prev => prev.map(c => c.id === clientId ? { ...c, email_cadence } : c))
+  const updateStatus = async (c: Client, status: ClientStatus) => {
+    await supabase.from('clients').update({ status }).eq('id', c.id)
+    await logInlineChange(c.id, 'Status', c.status ?? 'active', status)
+    setClients(prev => prev.map(x => x.id === c.id ? { ...x, status } : x))
+  }
+
+  const updateCadence = async (c: Client, email_cadence: EmailCadence) => {
+    await supabase.from('clients').update({ email_cadence }).eq('id', c.id)
+    await logInlineChange(c.id, 'Email Cadence', c.email_cadence ?? 'quarterly', email_cadence)
+    setClients(prev => prev.map(x => x.id === c.id ? { ...x, email_cadence } : x))
+  }
+
+  const updateAssigned = async (c: Client, assigned_to: string) => {
+    await supabase.from('clients').update({ assigned_to }).eq('id', c.id)
+    await logInlineChange(c.id, 'Assigned To', c.assigned_to ?? '', assigned_to)
+    setClients(prev => prev.map(x => x.id === c.id ? { ...x, assigned_to } : x))
   }
 
   const filters = [
@@ -120,37 +143,26 @@ export default function ClientsPage() {
     <AppLayout
       title="Clients"
       subtitle={`${clients.length} total clients`}
-      actions={
-        <Link href="/clients/new" className="btn-coral text-xs py-1.5 px-3 rounded-lg">+ Add Client</Link>
-      }
+      actions={<Link href="/clients/new" className="btn-coral text-xs py-1.5 px-3 rounded-lg">+ Add Client</Link>}
     >
-      {/* Filters + search */}
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div className="flex gap-1.5 flex-wrap">
           {filters.map(f => (
-            <button
-              key={f.id}
-              onClick={() => setFilter(f.id)}
+            <button key={f.id} onClick={() => setFilter(f.id)}
               className={`px-3.5 py-1 rounded-full text-xs font-semibold border transition-all shadow-sm ${
                 filter === f.id
                   ? 'bg-teal-700 text-white border-teal-700'
                   : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
-              }`}
-            >
+              }`}>
               {f.label}
             </button>
           ))}
         </div>
-        <input
-          type="search"
-          placeholder="Search clients…"
-          value={search}
+        <input type="search" placeholder="Search clients…" value={search}
           onChange={e => setSearch(e.target.value)}
-          className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 w-52"
-        />
+          className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 w-52" />
       </div>
 
-      {/* Table */}
       {loading ? (
         <div className="text-gray-400 text-sm py-16 text-center">Loading clients…</div>
       ) : filtered.length === 0 ? (
@@ -161,41 +173,35 @@ export default function ClientsPage() {
             {clients.length === 0 ? 'Add your first client to get started.' : 'Try adjusting your filters.'}
           </div>
           {clients.length === 0 && (
-            <Link href="/clients/new" className="btn-coral text-sm py-2 px-4 rounded-lg inline-block">
-              + Add First Client
-            </Link>
+            <Link href="/clients/new" className="btn-coral text-sm py-2 px-4 rounded-lg inline-block">+ Add First Client</Link>
           )}
         </div>
       ) : (
-        <div className="card overflow-hidden">
+        <div className="card overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                {['Company','Contact','Services','Cadence','Status',''].map(h => (
-                  <th key={h} className="px-4 py-2.5 text-left text-[11px] font-bold text-gray-400 uppercase tracking-wider">{h}</th>
+                {['Company','Contact','Services','Cadence','Status','Assigned To',''].map(h => (
+                  <th key={h} className="px-4 py-2.5 text-left text-[11px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filtered.map((c, idx) => {
                 const color = AVATAR_COLORS[idx % AVATAR_COLORS.length]
-                const ov = overdueMap[c.id] ?? 0
+                const ov    = overdueMap[c.id] ?? 0
                 const clientStatus = (c.status ?? 'active') as ClientStatus
                 return (
                   <tr key={c.id} className={`border-b border-gray-50 hover:bg-teal-50/20 transition-colors ${c.status === 'liquidated' ? 'opacity-60' : ''}`}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
-                        <div
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-extrabold flex-shrink-0"
-                          style={{ background: color }}
-                        >
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-extrabold flex-shrink-0"
+                          style={{ background: color }}>
                           {initials(c.company_name)}
                         </div>
                         <div>
                           <div className="font-semibold text-gray-900 text-sm">{c.company_name}</div>
-                          {ov > 0 && (
-                            <span className="text-[10px] font-bold text-red-500">⚠ {ov} overdue</span>
-                          )}
+                          {ov > 0 && <span className="text-[10px] font-bold text-red-500">⚠ {ov} overdue</span>}
                         </div>
                       </div>
                     </td>
@@ -214,34 +220,28 @@ export default function ClientsPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <select
-                        value={c.email_cadence ?? 'quarterly'}
-                        onChange={e => updateCadence(c.id, e.target.value as EmailCadence)}
-                        className={`border rounded-full text-xs font-bold py-1 pl-2.5 pr-1 cursor-pointer transition-all hover:shadow-md ${cadenceCls(c.email_cadence ?? 'quarterly')}`}
-                      >
-                        {CADENCE_OPTIONS.map(o => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
+                      <select value={c.email_cadence ?? 'quarterly'}
+                        onChange={e => updateCadence(c, e.target.value as EmailCadence)}
+                        className={`border rounded-full text-xs font-bold py-1 pl-2.5 pr-1 cursor-pointer transition-all hover:shadow-md ${cadenceCls(c.email_cadence ?? 'quarterly')}`}>
+                        {CADENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     </td>
                     <td className="px-4 py-3">
-                      <select
-                        value={clientStatus}
-                        onChange={e => updateStatus(c.id, e.target.value as ClientStatus)}
-                        className={`border rounded-full text-xs font-bold py-1 pl-2.5 pr-1 cursor-pointer transition-all hover:shadow-md ${statusCls(clientStatus)}`}
-                      >
-                        {CLIENT_STATUS_OPTIONS.map(o => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
+                      <select value={clientStatus}
+                        onChange={e => updateStatus(c, e.target.value as ClientStatus)}
+                        className={`border rounded-full text-xs font-bold py-1 pl-2.5 pr-1 cursor-pointer transition-all hover:shadow-md ${statusCls(clientStatus)}`}>
+                        {CLIENT_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     </td>
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/clients/${c.id}`}
-                        className="btn-outline text-xs py-1 px-2.5 rounded-lg"
-                      >
-                        Edit
-                      </Link>
+                      <select value={c.assigned_to ?? 'Jay'}
+                        onChange={e => updateAssigned(c, e.target.value)}
+                        className="border border-gray-200 rounded-full text-xs font-bold py-1 pl-2.5 pr-1 cursor-pointer bg-white text-gray-700 hover:shadow-md transition-all">
+                        {TEAM_MEMBERS.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link href={`/clients/${c.id}`} className="btn-outline text-xs py-1 px-2.5 rounded-lg">Edit</Link>
                     </td>
                   </tr>
                 )

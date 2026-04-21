@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import AppLayout from '@/components/AppLayout'
 import { createClient } from '@/lib/supabase'
-import { generateTasksForClient, Client } from '@/lib/types'
+import { generateTasksForClient, Client, TEAM_MEMBERS } from '@/lib/types'
 
 export default function NewClientPage() {
   const router = useRouter()
@@ -20,6 +20,7 @@ export default function NewClientPage() {
     email: '',
     sector: '',
     status: 'active' as 'active' | 'inactive' | 'on_hold' | 'liquidated',
+    assigned_to: 'Jay',
     bookkeeping_freq: 'none' as 'monthly' | 'quarterly' | 'none',
     esl_freq: 'none' as 'monthly' | 'quarterly' | 'none',
     has_vat: false,
@@ -59,6 +60,15 @@ export default function NewClientPage() {
     if (tasks.length > 0) {
       await supabase.from('tasks').insert(tasks)
     }
+
+    // Log creation
+    await supabase.from('client_audit_log').insert({
+      client_id:  newClient.id,
+      user_id:    user.id,
+      batch_id:   crypto.randomUUID(),
+      action:     'created',
+      changed_by: 'Jay',
+    })
 
     router.push('/clients')
   }
@@ -113,6 +123,12 @@ export default function NewClientPage() {
                 <option value="inactive">Inactive</option>
                 <option value="on_hold">On Hold</option>
                 <option value="liquidated">Liquidated</option>
+              </select>
+            </Field>
+            <Field label="Assigned To">
+              <select className={selectCls} value={form.assigned_to}
+                onChange={e => set('assigned_to', e.target.value)}>
+                {TEAM_MEMBERS.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </Field>
             <Field label="Sector / Industry">

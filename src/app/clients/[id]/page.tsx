@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import AppLayout from '@/components/AppLayout'
 import { createClient } from '@/lib/supabase'
-import { Client } from '@/lib/types'
+import { Client, ClientAuditLog, TEAM_MEMBERS } from '@/lib/types'
 
 const CLIENT_STATUS_OPTIONS = [
   { value: 'active',     label: 'Active' },
@@ -14,22 +14,103 @@ const CLIENT_STATUS_OPTIONS = [
   { value: 'liquidated', label: 'Liquidated' },
 ]
 
+// Human-readable field names for audit log display
+const FIELD_LABELS: Record<string, string> = {
+  company_name:        'Company Name',
+  contact_first:       'First Name',
+  contact_last:        'Last Name',
+  email:               'Contact Email',
+  sector:              'Sector',
+  status:              'Status',
+  assigned_to:         'Assigned To',
+  bookkeeping_freq:    'Bookkeeping',
+  esl_freq:            'ESL Filing',
+  has_vat:             'VAT Return',
+  has_cit:             'Corp. Income Tax',
+  has_annual_accounts: 'Annual Accounts',
+  email_cadence:       'Email Cadence',
+  email_to:            'Email TO',
+  email_cc:            'Email CC',
+  notes:               'Notes',
+}
+
+// Tracked fields (order matters for display)
+const TRACKED_FIELDS = Object.keys(FIELD_LABELS)
+
+function formatValue(field: string, val: unknown): string {
+  if (val === null || val === undefined || val === '') return '—'
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No'
+  const maps: Record<string, Record<string, string>> = {
+    bookkeeping_freq: { monthly: 'Monthly', quarterly: 'Quarterly', none: 'Not subscribed' },
+    esl_freq:         { monthly: 'Monthly', quarterly: 'Quarterly', none: 'Not subscribed' },
+    email_cadence:    { monthly: 'Monthly', quarterly: 'Quarterly' },
+    status:           { active: 'Active', inactive: 'Inactive', on_hold: 'On Hold', liquidated: 'Liquidated' },
+  }
+  if (maps[field]) return maps[field][String(val)] ?? String(val)
+  return String(val)
+}
+
+function nameFromEmail(email: string) {
+  const map: Record<string, string> = { 'jay@abingh.com': 'Jay' }
+  return map[email] ?? email.split('@')[0]
+}
+
+function fmtDateTime(iso: string) {
+  return new Date(iso).toLocaleString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+// Group audit log entries by batch_id
+function groupBatches(logs: ClientAuditLog[]) {
+  const map = new Map<string, ClientAuditLog[]>()
+  for (const entry of logs) {
+    const batch = map.get(entry.batch_id) ?? []
+    batch.push(entry)
+    map.set(entry.batch_id, batch)
+  }
+  // Sort batches newest first
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(b[0].changed_at).getTime() - new Date(a[0].changed_at).getTime()
+  )
+}
+
 export default function EditClientPage() {
   const router   = useRouter()
   const { id }   = useParams<{ id: string }>()
   const supabase = createClient()
-  const [saving, setSaving]   = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [error, setError]     = useState('')
-  const [form, setForm]       = useState<Partial<Client>>({})
+
+  const [saving, setSaving]       = useState(false)
+  const [loading, setLoading]     = useState(true)
+  const [error, setError]         = useState('')
+  const [form, setForm]           = useState<Partial<Client>>({})
+  const [auditLogs, setAuditLogs] = useState<ClientAuditLog[]>([])
+  const [showLog, setShowLog]     = useState(false)
+  const originalRef               = useRef<Partial<Client>>({})
+  const currentUserRef            = useRef<{ id: string; name: string }>({ id: '', name: 'Jay' })
 
   useEffect(() => {
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       const user = session?.user
       if (!user) { router.push('/login'); return }
+      currentUserRef.current = { id: user.id, name: nameFromEmail(user.email ?? '') }
+
       const { data } = await supabase.from('clients').select('*').eq('id', id).single()
-      if (data) setForm(data as Client)
+      if (data) {
+        setForm(data as Client)
+        originalRef.current = { ...(data as Client) }
+      }
+
+      // Load audit log
+      const { data: logs } = await supabase
+        .from('client_audit_log')
+        .select('*')
+        .eq('client_id', id)
+        .order('changed_at', { ascending: false })
+        .limit(200)
+      setAuditLogs((logs as ClientAuditLog[]) ?? [])
       setLoading(false)
     }
     load()
@@ -41,8 +122,49 @@ export default function EditClientPage() {
     e.preventDefault()
     setSaving(true)
     setError('')
-    const { error } = await supabase.from('clients').update(form).eq('id', id)
-    if (error) { setError(error.message); setSaving(false); return }
+
+    // Compute diffs
+    const original = originalRef.current
+    const changes: { field_name: string; old_value: string; new_value: string }[] = []
+    for (const field of TRACKED_FIELDS) {
+      const oldVal = original[field as keyof Client]
+      const newVal = form[field as keyof Client]
+      if (String(oldVal ?? '') !== String(newVal ?? '')) {
+        changes.push({
+          field_name: FIELD_LABELS[field] ?? field,
+          old_value:  formatValue(field, oldVal),
+          new_value:  formatValue(field, newVal),
+        })
+      }
+    }
+
+    // Save client
+    const { error: saveError } = await supabase.from('clients').update(form).eq('id', id)
+    if (saveError) { setError(saveError.message); setSaving(false); return }
+
+    // Insert audit log entries
+    if (changes.length > 0) {
+      const batchId = crypto.randomUUID()
+      const { data: { session } } = await supabase.auth.getSession()
+      const entries = changes.map(c => ({
+        client_id:  id,
+        user_id:    currentUserRef.current.id || session?.user?.id,
+        batch_id:   batchId,
+        action:     'updated',
+        field_name: c.field_name,
+        old_value:  c.old_value,
+        new_value:  c.new_value,
+        changed_by: currentUserRef.current.name,
+      }))
+      const { data: newLogs } = await supabase.from('client_audit_log').insert(entries).select()
+      if (newLogs) {
+        setAuditLogs(prev => [...(newLogs as ClientAuditLog[]), ...prev])
+      }
+    }
+
+    // Update original ref
+    originalRef.current = { ...form }
+    setSaving(false)
     router.push('/clients')
   }
 
@@ -52,7 +174,7 @@ export default function EditClientPage() {
     router.push('/clients')
   }
 
-  const inputCls = "w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
+  const inputCls  = "w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
   const selectCls = `${inputCls} bg-white cursor-pointer`
 
   const Field = ({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) => (
@@ -62,6 +184,8 @@ export default function EditClientPage() {
       {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
     </div>
   )
+
+  const batches = groupBatches(auditLogs)
 
   if (loading) return <AppLayout title="Edit Client"><div className="text-gray-400 text-sm py-16 text-center">Loading…</div></AppLayout>
 
@@ -98,9 +222,13 @@ export default function EditClientPage() {
             <Field label="Client Status">
               <select className={selectCls} value={form.status ?? 'active'}
                 onChange={e => set('status', e.target.value)}>
-                {CLIENT_STATUS_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
+                {CLIENT_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Assigned To">
+              <select className={selectCls} value={form.assigned_to ?? 'Jay'}
+                onChange={e => set('assigned_to', e.target.value)}>
+                {TEAM_MEMBERS.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </Field>
             <Field label="Sector">
@@ -113,30 +241,17 @@ export default function EditClientPage() {
         {/* Email Settings */}
         <div className="card p-5 mb-4">
           <h2 className="text-sm font-bold text-gray-700 mb-1 uppercase tracking-wide">📧 Email Settings</h2>
-          <p className="text-xs text-gray-400 mb-4">Configure where emails are sent for this client. Leave TO blank to use the contact email above.</p>
+          <p className="text-xs text-gray-400 mb-4">Leave TO blank to use the contact email above.</p>
           <div className="grid grid-cols-1 gap-4">
-            <Field
-              label="TO (send to)"
-              hint="Leave empty to automatically use the contact email above."
-            >
-              <input
-                type="email"
-                className={inputCls}
-                value={form.email_to ?? ''}
+            <Field label="TO (send to)" hint="Leave empty to use the contact email above.">
+              <input type="email" className={inputCls} value={form.email_to ?? ''}
                 onChange={e => set('email_to', e.target.value)}
-                placeholder={form.email ?? 'e.g. invoices@company.com'}
-              />
+                placeholder={form.email ?? 'e.g. invoices@company.com'} />
             </Field>
-            <Field
-              label="CC (copy to)"
-              hint="Separate multiple addresses with a comma: jan@abingh.com, amrit@abingh.com"
-            >
-              <input
-                className={inputCls}
-                value={form.email_cc ?? ''}
+            <Field label="CC (copy to)" hint="Separate multiple addresses with a comma.">
+              <input className={inputCls} value={form.email_cc ?? ''}
                 onChange={e => set('email_cc', e.target.value)}
-                placeholder="e.g. jay@abingh.com, amrit@abingh.com"
-              />
+                placeholder="e.g. jay@abingh.com, amrit@abingh.com" />
             </Field>
           </div>
         </div>
@@ -186,18 +301,16 @@ export default function EditClientPage() {
         </div>
 
         {/* Notes */}
-        <div className="card p-5 mb-5">
+        <div className="card p-5 mb-4">
           <Field label="Notes">
             <textarea rows={3} className={inputCls} value={form.notes ?? ''}
               onChange={e => set('notes', e.target.value)} />
           </Field>
         </div>
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg mb-4">{error}</div>
-        )}
+        {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg mb-4">{error}</div>}
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-8">
           <div className="flex gap-3">
             <button type="submit" disabled={saving} className="btn-coral py-2.5 px-6 rounded-lg">
               {saving ? 'Saving…' : 'Save Changes'}
@@ -210,6 +323,58 @@ export default function EditClientPage() {
           </button>
         </div>
       </form>
+
+      {/* Audit Log */}
+      <div className="max-w-2xl">
+        <button
+          type="button"
+          onClick={() => setShowLog(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
+        >
+          <span>🕓 Change History ({batches.length} {batches.length === 1 ? 'entry' : 'entries'})</span>
+          <span className="text-gray-400">{showLog ? '▲' : '▼'}</span>
+        </button>
+
+        {showLog && (
+          <div className="mt-2 border border-gray-200 rounded-xl overflow-hidden">
+            {batches.length === 0 ? (
+              <div className="px-5 py-8 text-center text-gray-400 text-sm">No changes recorded yet.</div>
+            ) : (
+              <div className="divide-y divide-gray-100 max-h-[480px] overflow-y-auto">
+                {batches.map((batch, bi) => {
+                  const first = batch[0]
+                  return (
+                    <div key={bi} className="px-5 py-3.5">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-6 h-6 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 text-[10px] font-extrabold flex-shrink-0">
+                          {first.changed_by?.[0] ?? '?'}
+                        </div>
+                        <span className="text-xs font-bold text-gray-700">{first.changed_by}</span>
+                        <span className="text-xs text-gray-400">· {fmtDateTime(first.changed_at)}</span>
+                      </div>
+                      {batch.map((entry, ei) => (
+                        <div key={ei} className="ml-8 text-xs text-gray-600 mb-1">
+                          {entry.action === 'created' ? (
+                            <span className="text-teal-600 font-semibold">✦ Client created</span>
+                          ) : (
+                            <>
+                              <span className="font-semibold text-gray-700">{entry.field_name}:</span>
+                              {' '}
+                              <span className="line-through text-gray-400">{entry.old_value}</span>
+                              {' → '}
+                              <span className="text-gray-800 font-medium">{entry.new_value}</span>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </AppLayout>
   )
 }
