@@ -5,7 +5,7 @@ import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import AppLayout from '@/components/AppLayout'
 import { createClient } from '@/lib/supabase'
-import { Client, ClientAuditLog, TEAM_MEMBERS } from '@/lib/types'
+import { Client, ClientAuditLog, Task, TaskStatus, TASK_TYPE_LABELS, STATUS_LABELS, TEAM_MEMBERS } from '@/lib/types'
 
 const CLIENT_STATUS_OPTIONS = [
   { value: 'active',     label: 'Active' },
@@ -87,6 +87,8 @@ export default function EditClientPage() {
   const [form, setForm]           = useState<Partial<Client>>({})
   const [auditLogs, setAuditLogs] = useState<ClientAuditLog[]>([])
   const [showLog, setShowLog]     = useState(false)
+  const [tasks, setTasks]         = useState<Task[]>([])
+  const [showTasks, setShowTasks] = useState(true)
   const originalRef               = useRef<Partial<Client>>({})
   const currentUserRef            = useRef<{ id: string; name: string }>({ id: '', name: 'Jay' })
 
@@ -111,6 +113,15 @@ export default function EditClientPage() {
         .order('changed_at', { ascending: false })
         .limit(200)
       setAuditLogs((logs as ClientAuditLog[]) ?? [])
+
+      // Load tasks for this client
+      const { data: taskData } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('client_id', id)
+        .order('deadline', { ascending: true })
+      setTasks((taskData as Task[]) ?? [])
+
       setLoading(false)
     }
     load()
@@ -172,6 +183,11 @@ export default function EditClientPage() {
     if (!confirm('Delete this client? All their tasks will also be deleted.')) return
     await supabase.from('clients').delete().eq('id', id)
     router.push('/clients')
+  }
+
+  const handleTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
+    await supabase.from('tasks').update({ status: newStatus }).eq('id', taskId)
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t))
   }
 
   const inputCls  = "w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
@@ -323,6 +339,93 @@ export default function EditClientPage() {
           </button>
         </div>
       </form>
+
+      {/* Tasks Panel */}
+      <div className="max-w-2xl mb-4">
+        <button
+          type="button"
+          onClick={() => setShowTasks(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
+        >
+          <span>📋 Tasks ({tasks.length})</span>
+          <span className="text-gray-400">{showTasks ? '▲' : '▼'}</span>
+        </button>
+
+        {showTasks && (
+          <div className="mt-2 border border-gray-200 rounded-xl overflow-hidden">
+            {tasks.length === 0 ? (
+              <div className="px-5 py-8 text-center text-gray-400 text-sm">No tasks found for this client.</div>
+            ) : (
+              <>
+                {/* Group by year/quarter for readability */}
+                {(() => {
+                  const today = new Date(); today.setHours(0,0,0,0)
+                  const STATUS_COLOR: Record<TaskStatus, string> = {
+                    pending:        'bg-gray-100 text-gray-600',
+                    info_requested: 'bg-teal-50 text-teal-700',
+                    in_progress:    'bg-amber-50 text-amber-700',
+                    done:           'bg-green-50 text-green-700',
+                  }
+                  const open  = tasks.filter(t => t.status !== 'done')
+                  const done  = tasks.filter(t => t.status === 'done')
+
+                  const TaskLine = ({ t }: { t: Task }) => {
+                    const deadline = new Date(t.deadline)
+                    const isOverdue = deadline < today && t.status !== 'done'
+                    const diff = Math.ceil((deadline.getTime() - today.getTime()) / 86400000)
+                    const dateLabel = isOverdue
+                      ? `${Math.abs(diff)}d overdue`
+                      : diff === 0 ? 'Today' : `${diff}d`
+
+                    return (
+                      <div className={`flex items-center gap-3 px-4 py-2.5 text-sm border-b border-gray-100 last:border-0 ${isOverdue ? 'bg-red-50/40' : ''}`}>
+                        <div className="flex-1 min-w-0">
+                          <span className="font-medium text-gray-800">{TASK_TYPE_LABELS[t.task_type]}</span>
+                          <span className="text-gray-400 text-xs ml-2">{t.period_label}</span>
+                        </div>
+                        <span className={`text-[11px] font-bold whitespace-nowrap ${isOverdue ? 'text-red-600' : 'text-gray-400'}`}>
+                          {deadline.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+                          {' ·'} {dateLabel}
+                        </span>
+                        <select
+                          value={t.status}
+                          onChange={e => handleTaskStatus(t.id, e.target.value as TaskStatus)}
+                          className={`text-[11px] font-semibold rounded-full px-2 py-0.5 border-0 cursor-pointer focus:outline-none focus:ring-1 focus:ring-teal-400 ${STATUS_COLOR[t.status]}`}
+                        >
+                          {(Object.keys(STATUS_LABELS) as TaskStatus[]).map(s => (
+                            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div className="max-h-[500px] overflow-y-auto">
+                      {open.length > 0 && (
+                        <div>
+                          <div className="px-4 py-1.5 bg-gray-50 text-[11px] font-bold text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                            Open — {open.length} task{open.length !== 1 ? 's' : ''}
+                          </div>
+                          {open.map(t => <TaskLine key={t.id} t={t} />)}
+                        </div>
+                      )}
+                      {done.length > 0 && (
+                        <div>
+                          <div className="px-4 py-1.5 bg-gray-50 text-[11px] font-bold text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                            Completed — {done.length}
+                          </div>
+                          {done.map(t => <TaskLine key={t.id} t={t} />)}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Audit Log */}
       <div className="max-w-2xl">
