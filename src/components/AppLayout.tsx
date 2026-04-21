@@ -16,21 +16,34 @@ export default function AppLayout({ children, title, subtitle, actions }: AppLay
   const [userEmail, setUserEmail] = useState('')
   const supabase = createClient()
 
-  useEffect(() => {
-    const load = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      const user = session?.user
-      if (user) setUserEmail(user.email ?? '')
+  const loadOverdue = async () => {
+    const today = new Date().toISOString().split('T')[0]
+    const { count } = await supabase
+      .from('tasks')
+      .select('*', { count: 'exact', head: true })
+      .lt('deadline', today)
+      .neq('status', 'done')
+    setOverdueCount(count ?? 0)
+  }
 
-      const today = new Date().toISOString().split('T')[0]
-      const { count } = await supabase
-        .from('tasks')
-        .select('*', { count: 'exact', head: true })
-        .lt('deadline', today)
-        .neq('status', 'done')
-      setOverdueCount(count ?? 0)
-    }
-    load()
+  useEffect(() => {
+    // Listen for auth state — handles token refresh automatically
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUserEmail(session.user.email ?? '')
+        loadOverdue()
+      }
+    })
+
+    // Also load on mount in case listener fires before component is ready
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUserEmail(session.user.email ?? '')
+        loadOverdue()
+      }
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   return (
