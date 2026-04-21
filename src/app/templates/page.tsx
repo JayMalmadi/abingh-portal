@@ -10,49 +10,51 @@ const DEFAULT_TEMPLATES: Omit<EmailTemplate, 'id' | 'user_id' | 'created_at' | '
   {
     name: 'Monthly Info Request',
     cadence: 'monthly',
-    subject: 'Administratie {{MonthName}} {{Year}} – Aanleveren stukken – {{CompanyName}}',
-    body: `Beste {{ContactFirstName}},
+    subject: 'Bookkeeping {{MonthName}} {{Year}} – Documents Required – {{CompanyName}}',
+    body: `Dear {{ContactFirstName}},
 
-Bijgaand sturen wij u een vriendelijke herinnering dat de administratie over {{MonthName}} {{Year}} aangeleverd dient te worden.
+I hope you're doing well!
 
-Wij verzoeken u vriendelijk om de volgende stukken vóór {{DeadlineDate}} aan te leveren:
+We want to process the bookkeeping for {{MonthName}} {{Year}}, and I would kindly request that you provide the following documents and information:
 
-  · Bankafschriften {{MonthName}}
-  · Inkoopfacturen
-  · Verkoopfacturen
-  · Eventuele bonnetjes en overige documenten
+1. Sales Invoices
+2. Purchase Invoices
+3. Bank Statements in MT40 format (if available)
+4. Bank Statements in PDF format
+5. Bank Statements in CSV format
+6. Any additional documentation or information relevant to the administration (e.g., credit notes, receipts, etc.).
 
-U kunt de stukken uploaden via onze portal of per e-mail aan ons toesturen.
+Please don't hesitate to reach out if you have any questions or need assistance gathering the required documents.
 
-Heeft u vragen? Neem dan gerust contact met ons op.
+I would appreciate receiving the documents by {{DeadlineDate}} to ensure a timely and accurate processing.
 
-Met vriendelijke groet,
-
+Kind regards,
 {{SenderName}}
 Abingh Accountancy`,
   },
   {
     name: 'Quarterly Info Request',
     cadence: 'quarterly',
-    subject: 'Kwartaaladministratie {{QuarterName}} {{Year}} – Aanleveren stukken – {{CompanyName}}',
-    body: `Beste {{ContactFirstName}},
+    subject: 'Bookkeeping & VAT {{QuarterName}} {{Year}} – Documents Required – {{CompanyName}}',
+    body: `Dear {{ContactFirstName}},
 
-Het kwartaal {{QuarterName}} {{Year}} is afgesloten. Wij starten nu met de verwerking van uw administratie.
+I hope you're doing well!
 
-Om de kwartaalcijfers tijdig te verwerken en de BTW-aangifte voor {{DeadlineDate}} in te dienen, verzoeken wij u vriendelijk de volgende stukken aan te leveren:
+We want to process the bookkeeping and file VAT for {{QuarterName}} {{Year}}, and I would kindly request that you provide the following documents and information:
 
-  · Bankafschriften {{QuarterName}} ({{QuarterMonths}})
-  · Alle inkoopfacturen van het kwartaal
-  · Alle verkoopfacturen van het kwartaal
-  · Eventuele kasadministratie
-  · Loonstroken en overige documenten
+1. Sales Invoices
+2. Purchase Invoices
+3. Tax assessments
+4. Bank Statements in MT40 format (if available)
+5. Bank Statements in PDF format
+6. Bank Statements in CSV format
+7. Any additional documentation or information relevant to the administration (e.g., credit notes, import/export statements, etc.).
 
-U kunt de stukken uploaden via onze portal of per e-mail aan ons toesturen.
+Please don't hesitate to reach out if you have any questions or need assistance gathering the required documents.
 
-Bij vragen staan wij graag voor u klaar.
+I would appreciate receiving the documents by {{DeadlineDate}} to ensure a timely and accurate processing.
 
-Met vriendelijke groet,
-
+Kind regards,
 {{SenderName}}
 Abingh Accountancy`,
   },
