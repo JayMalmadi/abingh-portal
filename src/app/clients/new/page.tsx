@@ -19,12 +19,15 @@ export default function NewClientPage() {
     contact_last: '',
     email: '',
     sector: '',
+    status: 'active' as 'active' | 'inactive' | 'on_hold' | 'liquidated',
     bookkeeping_freq: 'none' as 'monthly' | 'quarterly' | 'none',
     esl_freq: 'none' as 'monthly' | 'quarterly' | 'none',
     has_vat: false,
     has_cit: false,
     has_annual_accounts: false,
-    email_cadence: 'monthly' as 'monthly' | 'quarterly',
+    email_cadence: 'quarterly' as 'monthly' | 'quarterly',
+    email_to: '',
+    email_cc: '',
     notes: '',
   })
 
@@ -37,10 +40,9 @@ export default function NewClientPage() {
     setError('')
 
     const { data: { session } } = await supabase.auth.getSession()
-      const user = session?.user
+    const user = session?.user
     if (!user) { router.push('/login'); return }
 
-    // Insert client
     const { data: newClient, error: clientError } = await supabase
       .from('clients')
       .insert({ ...form, user_id: user.id })
@@ -53,7 +55,6 @@ export default function NewClientPage() {
       return
     }
 
-    // Auto-generate tasks for this client
     const tasks = generateTasksForClient(newClient as Client)
     if (tasks.length > 0) {
       await supabase.from('tasks').insert(tasks)
@@ -62,10 +63,11 @@ export default function NewClientPage() {
     router.push('/clients')
   }
 
-  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  const Field = ({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) => (
     <div>
       <label className="block text-sm font-semibold text-gray-700 mb-1.5">{label}</label>
       {children}
+      {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
     </div>
   )
 
@@ -81,6 +83,7 @@ export default function NewClientPage() {
       }
     >
       <form onSubmit={handleSubmit} className="max-w-2xl">
+
         {/* Company info */}
         <div className="card p-5 mb-4">
           <h2 className="text-sm font-bold text-gray-700 mb-4 uppercase tracking-wide">Company Details</h2>
@@ -99,13 +102,53 @@ export default function NewClientPage() {
               <input className={inputCls} value={form.contact_last}
                 onChange={e => set('contact_last', e.target.value)} placeholder="van den Berg" />
             </Field>
-            <Field label="Email Address">
+            <Field label="Contact Email">
               <input type="email" className={inputCls} value={form.email}
                 onChange={e => set('email', e.target.value)} placeholder="sophie@bedrijf.nl" />
+            </Field>
+            <Field label="Client Status">
+              <select className={selectCls} value={form.status}
+                onChange={e => set('status', e.target.value)}>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="on_hold">On Hold</option>
+                <option value="liquidated">Liquidated</option>
+              </select>
             </Field>
             <Field label="Sector / Industry">
               <input className={inputCls} value={form.sector}
                 onChange={e => set('sector', e.target.value)} placeholder="Food & Beverage" />
+            </Field>
+          </div>
+        </div>
+
+        {/* Email Settings */}
+        <div className="card p-5 mb-4">
+          <h2 className="text-sm font-bold text-gray-700 mb-1 uppercase tracking-wide">📧 Email Settings</h2>
+          <p className="text-xs text-gray-400 mb-4">Configure where automated emails are sent. Leave TO blank to use the contact email above.</p>
+          <div className="grid grid-cols-1 gap-4">
+            <Field
+              label="TO (send to)"
+              hint="Leave empty to use the contact email above."
+            >
+              <input
+                type="email"
+                className={inputCls}
+                value={form.email_to}
+                onChange={e => set('email_to', e.target.value)}
+                placeholder="e.g. invoices@company.com"
+              />
+            </Field>
+            <Field
+              label="CC (copy to)"
+              hint="Separate multiple addresses with a comma: jay@abingh.com, amrit@abingh.com"
+            >
+              <input
+                className={inputCls}
+                value={form.email_cc}
+                onChange={e => set('email_cc', e.target.value)}
+                placeholder="e.g. jay@abingh.com, amrit@abingh.com"
+              />
             </Field>
           </div>
         </div>
@@ -138,10 +181,10 @@ export default function NewClientPage() {
               </select>
             </Field>
           </div>
-          <div className="flex gap-6 mt-4">
+          <div className="flex flex-wrap gap-6 mt-4">
             {[
-              { key: 'has_vat', label: 'VAT Return (quarterly)' },
-              { key: 'has_cit', label: 'Corporate Income Tax (annual)' },
+              { key: 'has_vat',             label: 'VAT Return (quarterly)' },
+              { key: 'has_cit',             label: 'Corporate Income Tax (annual)' },
               { key: 'has_annual_accounts', label: 'Annual Accounts' },
             ].map(({ key, label }) => (
               <label key={key} className="flex items-center gap-2 cursor-pointer select-none">

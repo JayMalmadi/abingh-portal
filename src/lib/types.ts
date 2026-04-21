@@ -1,6 +1,7 @@
 export type BookkeepingFreq = 'monthly' | 'quarterly' | 'none'
 export type EslFreq = 'monthly' | 'quarterly' | 'none'
 export type EmailCadence = 'monthly' | 'quarterly'
+export type ClientStatus = 'active' | 'inactive' | 'liquidated' | 'on_hold'
 export type TaskType = 'bookkeeping' | 'esl' | 'vat' | 'cit' | 'annual_accounts'
 export type TaskStatus = 'pending' | 'info_requested' | 'in_progress' | 'done'
 
@@ -18,6 +19,9 @@ export interface Client {
   has_cit: boolean
   has_annual_accounts: boolean
   email_cadence: EmailCadence
+  status: ClientStatus
+  email_to: string       // override TO address; empty = use contact email
+  email_cc: string       // comma-separated CC addresses
   notes: string
   created_at: string
   updated_at: string

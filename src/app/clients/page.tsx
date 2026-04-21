@@ -5,16 +5,31 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import AppLayout from '@/components/AppLayout'
 import { createClient } from '@/lib/supabase'
-import { Client } from '@/lib/types'
+import { Client, ClientStatus, EmailCadence } from '@/lib/types'
 
 const AVATAR_COLORS = [
   '#f97316','#6366f1','#0ea5e9','#10b981',
   '#8b5cf6','#f59e0b','#2563eb','#ec4899','#14b8a6','#64748b',
 ]
 
+const CLIENT_STATUS_OPTIONS: { value: ClientStatus; label: string; cls: string }[] = [
+  { value: 'active',     label: 'Active',     cls: 'bg-green-50 text-green-700 border-green-200' },
+  { value: 'inactive',   label: 'Inactive',   cls: 'bg-gray-50 text-gray-600 border-gray-200' },
+  { value: 'on_hold',    label: 'On Hold',    cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  { value: 'liquidated', label: 'Liquidated', cls: 'bg-red-50 text-red-600 border-red-200' },
+]
+
+const CADENCE_OPTIONS: { value: EmailCadence; label: string; cls: string }[] = [
+  { value: 'monthly',   label: 'Monthly',   cls: 'bg-teal-50 text-teal-700 border-teal-200' },
+  { value: 'quarterly', label: 'Quarterly', cls: 'bg-purple-50 text-purple-700 border-purple-200' },
+]
+
 function initials(name: string) {
   return name.split(' ').filter(w => /^[A-Z]/i.test(w)).slice(0, 2).map(w => w[0].toUpperCase()).join('')
 }
+
+const statusCls = (s: ClientStatus) => CLIENT_STATUS_OPTIONS.find(o => o.value === s)?.cls ?? ''
+const cadenceCls = (c: EmailCadence) => CADENCE_OPTIONS.find(o => o.value === c)?.cls ?? ''
 
 export default function ClientsPage() {
   const [clients, setClients]   = useState<Client[]>([])
@@ -40,7 +55,6 @@ export default function ClientsPage() {
       setClients(list)
       setFiltered(list)
 
-      // Count overdue tasks per client
       const today = new Date().toISOString().split('T')[0]
       const { data: overdueTasks } = await supabase
         .from('tasks')
@@ -59,20 +73,37 @@ export default function ClientsPage() {
 
   useEffect(() => {
     let list = clients
-    if (filter === 'monthly')   list = list.filter(c => c.bookkeeping_freq === 'monthly')
-    if (filter === 'quarterly') list = list.filter(c => c.bookkeeping_freq === 'quarterly')
-    if (filter === 'esl')       list = list.filter(c => c.esl_freq !== 'none')
-    if (filter === 'overdue')   list = list.filter(c => overdueMap[c.id])
-    if (search) list = list.filter(c => c.company_name.toLowerCase().includes(search.toLowerCase()) || c.email.toLowerCase().includes(search.toLowerCase()))
+    if (filter === 'monthly')    list = list.filter(c => c.bookkeeping_freq === 'monthly')
+    if (filter === 'quarterly')  list = list.filter(c => c.bookkeeping_freq === 'quarterly')
+    if (filter === 'esl')        list = list.filter(c => c.esl_freq !== 'none')
+    if (filter === 'overdue')    list = list.filter(c => overdueMap[c.id])
+    if (filter === 'active')     list = list.filter(c => (c.status ?? 'active') === 'active')
+    if (filter === 'liquidated') list = list.filter(c => c.status === 'liquidated')
+    if (search) list = list.filter(c =>
+      c.company_name.toLowerCase().includes(search.toLowerCase()) ||
+      c.email.toLowerCase().includes(search.toLowerCase())
+    )
     setFiltered(list)
   }, [filter, search, clients, overdueMap])
 
+  const updateStatus = async (clientId: string, status: ClientStatus) => {
+    await supabase.from('clients').update({ status }).eq('id', clientId)
+    setClients(prev => prev.map(c => c.id === clientId ? { ...c, status } : c))
+  }
+
+  const updateCadence = async (clientId: string, email_cadence: EmailCadence) => {
+    await supabase.from('clients').update({ email_cadence }).eq('id', clientId)
+    setClients(prev => prev.map(c => c.id === clientId ? { ...c, email_cadence } : c))
+  }
+
   const filters = [
     { id: 'all',       label: `All (${clients.length})` },
+    { id: 'active',    label: 'Active' },
     { id: 'monthly',   label: 'Monthly BK' },
     { id: 'quarterly', label: 'Quarterly BK' },
     { id: 'esl',       label: 'ESL Filing' },
     { id: 'overdue',   label: 'Has Overdue' },
+    { id: 'liquidated',label: 'Liquidated' },
   ]
 
   const serviceLabels = (c: Client) => {
@@ -102,7 +133,7 @@ export default function ClientsPage() {
               onClick={() => setFilter(f.id)}
               className={`px-3.5 py-1 rounded-full text-xs font-semibold border transition-all shadow-sm ${
                 filter === f.id
-                  ? 'bg-teal-700 text-white border-teal-700 shadow-teal-200'
+                  ? 'bg-teal-700 text-white border-teal-700'
                   : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
               }`}
             >
@@ -149,8 +180,9 @@ export default function ClientsPage() {
               {filtered.map((c, idx) => {
                 const color = AVATAR_COLORS[idx % AVATAR_COLORS.length]
                 const ov = overdueMap[c.id] ?? 0
+                const clientStatus = (c.status ?? 'active') as ClientStatus
                 return (
-                  <tr key={c.id} className="border-b border-gray-50 hover:bg-teal-50/30 transition-colors">
+                  <tr key={c.id} className={`border-b border-gray-50 hover:bg-teal-50/20 transition-colors ${c.status === 'liquidated' ? 'opacity-60' : ''}`}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
                         <div
@@ -161,7 +193,9 @@ export default function ClientsPage() {
                         </div>
                         <div>
                           <div className="font-semibold text-gray-900 text-sm">{c.company_name}</div>
-                          <div className="text-xs text-gray-400">{c.sector}</div>
+                          {ov > 0 && (
+                            <span className="text-[10px] font-bold text-red-500">⚠ {ov} overdue</span>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -171,21 +205,35 @@ export default function ClientsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
-                        {serviceLabels(c).map(s => (
-                          <span key={s} className="bg-gray-100 border border-gray-200 text-gray-500 text-[10.5px] px-1.5 py-0.5 rounded font-medium">{s}</span>
-                        ))}
+                        {serviceLabels(c).length > 0
+                          ? serviceLabels(c).map(s => (
+                              <span key={s} className="bg-gray-100 border border-gray-200 text-gray-500 text-[10.5px] px-1.5 py-0.5 rounded font-medium">{s}</span>
+                            ))
+                          : <span className="text-xs text-gray-300">—</span>
+                        }
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={c.email_cadence === 'monthly' ? 'badge-teal' : 'badge-purple'}>
-                        {c.email_cadence === 'monthly' ? 'Monthly' : 'Quarterly'}
-                      </span>
+                      <select
+                        value={c.email_cadence ?? 'quarterly'}
+                        onChange={e => updateCadence(c.id, e.target.value as EmailCadence)}
+                        className={`border rounded-full text-xs font-bold py-1 pl-2.5 pr-1 cursor-pointer transition-all hover:shadow-md ${cadenceCls(c.email_cadence ?? 'quarterly')}`}
+                      >
+                        {CADENCE_OPTIONS.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
                     </td>
                     <td className="px-4 py-3">
-                      {ov > 0
-                        ? <span className="badge-red">{ov} Overdue</span>
-                        : <span className="badge-green">On Track</span>
-                      }
+                      <select
+                        value={clientStatus}
+                        onChange={e => updateStatus(c.id, e.target.value as ClientStatus)}
+                        className={`border rounded-full text-xs font-bold py-1 pl-2.5 pr-1 cursor-pointer transition-all hover:shadow-md ${statusCls(clientStatus)}`}
+                      >
+                        {CLIENT_STATUS_OPTIONS.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
                     </td>
                     <td className="px-4 py-3">
                       <Link
