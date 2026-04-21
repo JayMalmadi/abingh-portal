@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import AppLayout from '@/components/AppLayout'
 import { createClient } from '@/lib/supabase'
-import { Task, TaskStatus, TASK_TYPE_LABELS, STATUS_LABELS } from '@/lib/types'
+import { Task, TaskStatus, TASK_TYPE_LABELS } from '@/lib/types'
 
 interface TaskWithClient extends Task {
   clients: { company_name: string; email: string; contact_first: string }
@@ -19,7 +19,7 @@ const STATUS_OPTIONS: { value: TaskStatus; label: string; cls: string }[] = [
 
 const statusCls = (s: TaskStatus) => STATUS_OPTIONS.find(o => o.value === s)?.cls ?? ''
 
-export default function TasksPage() {
+function TasksContent() {
   const [tasks, setTasks]     = useState<TaskWithClient[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter]   = useState('all')
@@ -91,11 +91,7 @@ export default function TasksPage() {
   ]
 
   return (
-    <AppLayout
-      title="Tasks"
-      subtitle={`${tasks.length} total tasks`}
-    >
-      {/* Filters */}
+    <>
       <div className="flex gap-1.5 mb-4 flex-wrap">
         {FILTERS.map(f => (
           <button key={f.id} onClick={() => setFilter(f.id)}
@@ -166,6 +162,19 @@ export default function TasksPage() {
           </table>
         </div>
       )}
+    </>
+  )
+}
+
+export default function TasksPage() {
+  return (
+    <AppLayout
+      title="Tasks"
+      subtitle="Your task overview"
+    >
+      <Suspense fallback={<div className="text-gray-400 text-sm py-16 text-center">Loading tasks…</div>}>
+        <TasksContent />
+      </Suspense>
     </AppLayout>
   )
 }
