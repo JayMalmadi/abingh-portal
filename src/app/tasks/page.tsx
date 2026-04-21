@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useState, useRef } from 'react'
+import React, { Suspense, useEffect, useState, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import AppLayout from '@/components/AppLayout'
 import { createClient } from '@/lib/supabase'
@@ -313,8 +313,8 @@ function TasksContent() {
                 const lastComment = [...comments].reverse().find(c => !c.is_auto)
 
                 return (
-                  <>
-                    <tr key={t.id}
+                  <React.Fragment key={t.id}>
+                    <tr
                       className={`border-b border-gray-50 hover:bg-teal-50/20 transition-colors cursor-pointer ${isOverdue ? 'bg-red-50/30' : ''} ${isOpen ? 'bg-teal-50/30' : ''}`}
                       onClick={() => toggleExpand(t.id)}
                     >
@@ -356,7 +356,7 @@ function TasksContent() {
 
                     {/* Expanded comment panel */}
                     {isOpen && (
-                      <tr key={`${t.id}-panel`} className="bg-teal-50/20">
+                      <tr className="bg-teal-50/20">
                         <td colSpan={6} className="px-5 py-4 border-b border-teal-100">
                           {/* Comment history */}
                           <div className="mb-3">
@@ -406,7 +406,7 @@ function TasksContent() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 )
               })}
             </tbody>
